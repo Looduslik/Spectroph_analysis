@@ -1,59 +1,45 @@
-# Обработка данных спектрофотометрии для кинетики десорбции
 
-Программа для дипломной работы: строит калибровочную кривую по растворам
-известной концентрации и по ней считает концентрацию вещества в
-последующих кинетических пробах, с поправкой на то, что каждая отобранная
-аликвота замещается чистым растворителем (и обратно в раствор не
-возвращается).
+A Python tool was built for my bachelor's thesis project. It builds a
+calibration curve from standard solutions of known concentration, then uses
+it to compute substance concentration over time in a desorption experiment —
+correcting for the fact that each sampled aliquot is permanently removed and
+replaced with fresh solvent rather than returned to the vessel.
 
-## Как это работает
 
-1. **Калибровка.** Загружаются спектры калибровочных растворов с известной
-   концентрацией. На заранее выбранной (вручную, по спектрам) длине волны
-   берётся поглощение (Abs.) каждого раствора и строится калибровочная
-   прямая `A = k·C + b` (метод наименьших квадратов).
-2. **Кинетика.** Для каждого образца загружается серия спектров — по одному
-   на каждую отобранную аликвоту (упорядочены по времени). Для каждой
-   аликвоты по калибровочной прямой считается концентрация.
-3. **Поправка на отбор аликвот.** Так как отобранная аликвота не
-   возвращается, а замещается чистым растворителем, "сырая" измеренная
-   концентрация в момент времени `n` — это концентрация уже разбавленного
-   раствора, а не полное количество десорбировавшегося вещества.
-   Используется стандартная поправка (как в тестах на растворение,
-   dissolution testing):
+## How it works
+
+1. **Calibration** Spectra of calibration solutions (with known concntration) are loaded.  choose wavelenght manually. Datatype: wavelenght - absorbance.Calibration line  `A = k·C + b` is fitted by least squares..
+2. **Kinetics** FOr each samples, a series of spectra is loaded — one spectrum per aliquot taken, ordered by time. For each aliquot, the calibration line converts absorbance into concentration.
+3. **Correction for aloquot removal** Because each aliquot is not returned, but replaced with fresh solvent aplplied a correction:
 
    ```
-   C_corrected[n] = C_measured[n] + (V_аликвоты / V_общий) * Σ C_measured[1..n-1]
+   C_corrected[n] = C_measured[n] + (V_aliquot / V_total) * Σ C_measured[1..n-1]
    ```
 
-   где сумма берётся по всем аликвотам, отобранным **раньше** текущей.
-   `C_corrected` — это концентрация, которая была бы в сосуде, если бы
-   отбора проб не происходило (т.е. накопленное количество десорбировавшегося
-   вещества, пересчитанное на полный объём).
-
+  whre the sum runs over all aliquots taken before the current one.
+ 
 ## Структура проекта
 
 ```
 spectro-diploma/
-├── config.yaml              # длина волны, пути к папкам с данными
-├── run.py                   # запуск (можно просто нажать Run в VS Code)
+├── config.yaml              # wavelength, paths to data folders
+├── run.py                   
 ├── requirements.txt
 ├── src/
-│   ├── io_utils.py          # чтение "сырых" файлов спектрофотометра
-│   ├── calibration.py       # построение калибровочной кривой
-│   ├── kinetics.py          # расчёт кинетики с поправкой на аликвоты
-│   └── main.py               # точка входа
+│   ├── io_utils.py          # reading raw  files
+│   ├── calibration.py       # calibration curve fittin
+│   ├── kinetics.py          # kinetics calculation with aliquot correction
+│   └── main.py            
 ├── data/
-│   ├── calibration/         # сюда положить cal_<концентрация>.txt
-│   ├── samples/              # сюда положить <образец>.<время_мин>.txt
-│   └── raw_examples/         # примеры "сырых" файлов как они выходят из прибора
-└── results/                 # сюда программа сохраняет CSV и графики
+│   ├── calibration/         # ut cal_<concentration>.txt files here
+│   ├── samples/              # сput <sample>.<time_min>.txt files here
+│   └── raw_examples/         # sample raw files as exported by the instrument
+└── results/                 # output CSVs and plots are saved here
 ```
 
-## Формат входных файлов
+## input file format
 
-Файл прибора (как есть, менять руками не нужно):
-
+Instrument output file from UV-1800, Shimadzu (used as-is, no manual edits needed):
 ```
 "имя_образца - RawData"
 "Wavelength nm." "Abs."
@@ -62,75 +48,46 @@ spectro-diploma/
 ...
 ```
 
-Первые две строки — служебная шапка, дальше — пары `длина_волны Abs.`
-через пробел, десятичная запятая. Кодировка файла определяется
-автоматически (UTF-8 или cp1251 — так бывает, если название образца на
-кириллице и файл сохранён на "русской" Windows).
 
-**Важно:** сам прибор обычно даёт файлам "плохие" имена (см.
-`data/raw_examples/`). Чтобы программа понимала, что где, файлы нужно
-**переименовать** по следующим правилам:
 
-### Калибровочные растворы → `data/calibration/`
+### Calibration solutions → `data/calibration/`
 
 ```
-cal_<концентрация>.txt
+cal_<concentration>.txt
 ```
 
 Дробная часть концентрации — через запятую. Примеры:
 
-- `cal_5,0.txt` → концентрация 5.0
-- `cal_10.txt` → концентрация 10
-- `cal_0,25.txt` → концентрация 0.25
+- `cal_5,0.txt` → concentration 5.0 %
+- `cal_10.txt` → concentration 10 %
+- `cal_0,25.txt` → concentration 0.25 %
 
-Единицы концентрации — любые (мг/л, мкМ и т.д.), главное — одни и те же
-для всех калибровочных растворов. Результат (`c_measured`, `c_corrected`)
-будет в тех же единицах.
+Concentration units can be anything (mg/L, µM, etc.) as long as they're
+consistent across all calibration solutions. Output values (`c_measured`,
+`c_corrected`) will be in the same units.
 
-### Образцы (кинетика) → `data/samples/`
+
+### Samples → `data/samples/`
 
 ```
-<номер_образца>.<время_в_минутах>.txt
+<sample_id>.<time_in_min>.txt
 ```
 
-Примеры:
+examples:
 
-- `5.120.txt` → образец 5, точка на 120-й минуте
-- `5.120,5.txt` → образец 5, точка на 120.5-й минуте (дробная часть через запятую)
+- `5.120.txt` → sample 5, time point  at 120min
 
-Номер аликвоты отдельно указывать не нужно — программа сама выстраивает
-файлы одного образца по возрастанию времени и присваивает им номера
-1, 2, 3, ... в этом порядке. Поэтому важно, чтобы аликвоты одного образца
-действительно отбирались строго по порядку без пропусков.
 
-## Установка
 
-```bash
-python -m venv .venv
-# Windows:
-.venv\Scripts\activate
-# macOS/Linux:
-source .venv/bin/activate
+## CHoosing a wavelenght for calibration
 
-pip install -r requirements.txt
-```
-
-## Как выбрать длину волны для калибровки
-
-Открой спектры калибровочных растворов (например, в Excel/Origin/любым
-удобным способом) и найди длину волны, где:
-
-- поглощение растёт монотонно с ростом концентрации (растворы не
-  накладываются друг на друга или не выходят на насыщение);
-- по возможности — это область пика поглощения интересующего вещества.
-
-Впиши выбранное значение в `config.yaml`:
+Enter the choosen value in `config.yaml`:
 
 ```yaml
 wavelength_nm: 270
 ```
 
-## Запуск
+## Running
 
 Из корня проекта:
 
@@ -140,32 +97,28 @@ python run.py
 
 Программа:
 
-1. построит калибровочную кривую и выведет её уравнение и R²
-   (график сохранится в `results/calibration_curve.png`);
-2. спросит в терминале `V_общий` и `V_аликвоты` (в одних и тех же единицах,
-   например мл);
-3. обработает все образцы из `data/samples/` и для каждого сохранит:
-   - `results/sample_<id>_results.csv` — таблица по всем аликвотам
-     (время, поглощение, измеренная и скорректированная концентрация);
-   - `results/sample_<id>_kinetics.png` — график концентрации от времени.
-
-Можно указать другой конфиг:
-
+The program will:
+build the calibration curve and print its equation and R²
+(the plot is saved to `results/calibration_curve.png`);
+prompt for `V_total` and `V_aliquot` in the terminal (same volume units,
+e.g. mL);
+process every sample in `data/samples/` and save, for each one:
+`results/sample_<id>_results.csv` — a table of all aliquots (time,
+absorbance, measured and corrected concentration);
+`results/sample_<id>_kinetics.png` — a concentration-vs-time plot.
+A different config file can be specified:
 ```bash
 python run.py --config other_config.yaml
 ```
 
-## Публикация на GitHub
+## Publishing on GitHub
 
 ```bash
 git init
 git add .
 git commit -m "Initial commit"
 git branch -M main
-git remote add origin <ссылка на твой репозиторий>
+git remote add origin <(https://github.com/Looduslik/Spectroph_analysis)>
 git push -u origin main
 ```
 
-Папка `results/` и файлы с реальными данными по умолчанию не
-отслеживаются `.gitignore` — при желании поправь его, если хочешь
-хранить конкретные результаты в репозитории.
